@@ -12,8 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .metrics import *  # noqa: F401, F403
-from .operators import *  # noqa: F401, F403
-from .processors import *  # noqa: F401, F403
-from .runners import *  # noqa: F401, F403
-from .utils import *  # noqa: F401, F403
+import os
+
+if os.getenv('FLUXVLA_REMOTE_CLIENT_ONLY', '0') == '1':
+    from .operators import *  # noqa: F401, F403
+    from .runners import *  # noqa: F401, F403
+    from .utils import *  # noqa: F401, F403
+else:
+    from .metrics import *  # noqa: F401, F403
+    from .operators import *  # noqa: F401, F403
+    from .processors import *  # noqa: F401, F403
+    from .runners import *  # noqa: F401, F403
+    from .utils import *  # noqa: F401, F403

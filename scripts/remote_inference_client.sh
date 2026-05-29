@@ -109,4 +109,6 @@ if [ -n "$SSH_HOST" ]; then
 fi
 
 echo "[client] Starting inference with config: $CONFIG"
+export FLUXVLA_REMOTE_CLIENT_ONLY=1
+export PYTHONPATH="$(pwd):${PYTHONPATH}"
 python scripts/inference.py --config "$CONFIG" $EXTRA_ARGS
