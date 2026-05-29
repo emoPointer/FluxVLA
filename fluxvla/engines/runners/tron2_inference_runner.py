@@ -89,7 +89,12 @@ class Tron2InferenceRunner(BaseInferenceRunner):
                 'img_right_depth_topic': '/camera/right/depth/image_rect_raw',
                 'joint_state_topic': '/joint_states',
                 'gripper_state_topic': '/gripper_state',
+                'connect_websocket': not self.dry_run,
             }
+        else:
+            kwargs['operator'] = dict(kwargs['operator'])
+            kwargs['operator'].setdefault('connect_websocket',
+                                          not self.dry_run)
 
         # Initialize Tron2-specific task descriptions
         if 'task_descriptions' not in kwargs or kwargs[
@@ -249,6 +254,10 @@ class Tron2InferenceRunner(BaseInferenceRunner):
         - 16-dim: left7 + left_gripper + right7 + right_gripper
         - List of 18-dim lists: execute each pose sequentially
         """
+        if self.dry_run:
+            print('[Tron2InferenceRunner] dry_run=True, skip prepare pose.')
+            return
+
         if self.prepare_pose is None:
             return
 

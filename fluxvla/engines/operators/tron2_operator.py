@@ -75,7 +75,8 @@ class Tron2Operator:
             ws_port: int = 5000,
             ws_accid: str = None,
             enable_base_control: bool = False,
-            trajectory_exec_mode: str = 'movej'):
+            trajectory_exec_mode: str = 'movej',
+            connect_websocket: bool = True):
         """Initialize Tron2Operator with ROS topics configuration.
 
         Topics can be specified via constructor args or environment variables.
@@ -100,6 +101,9 @@ class Tron2Operator:
             enable_base_control: Whether to enable base control.
             trajectory_exec_mode: Trajectory execution mode, one of
                 {'movej', 'servoj'}. Defaults to 'movej'.
+            connect_websocket: Whether to connect to the robot WebSocket.
+                Disable this for dry-run clients that only collect
+                observations and send them to a remote inference server.
         """
         # Camera topics
         self.img_left_topic = img_left_topic
@@ -123,14 +127,17 @@ class Tron2Operator:
         self.use_depth_image = use_depth_image
         self.enable_base_control = enable_base_control
         self.trajectory_exec_mode = trajectory_exec_mode
+        self.connect_websocket = connect_websocket
 
         # WebSocket configuration
         self.robot_ip = robot_ip
         self.ws_port = ws_port
+        self.ws_url = f'ws://{self.robot_ip}:{self.ws_port}'
         self.ws_client = None
         self.ws_accid = ws_accid  # None means auto-detect from server
         self.ws_connected = False
         self.ws_lock = threading.Lock()
+        self._ws_thread = None
 
         # Set default arm step lengths if not provided (14 DOF)
         if arm_steps_length is None:
@@ -172,8 +179,12 @@ class Tron2Operator:
         # Initialize ROS for receiving sensor data
         self._init_ros()
 
-        # Initialize WebSocket for robot control
-        self._init_websocket()
+        # Initialize WebSocket only when commands may be sent to the robot.
+        if self.connect_websocket:
+            self._init_websocket()
+        else:
+            print('Tron2Operator WebSocket disabled '
+                  '(connect_websocket=False)')
 
         self.json_encoder = NumpySafeEncoder
 
@@ -476,8 +487,6 @@ class Tron2Operator:
             raise ModuleNotFoundError(
                 'websocket-client is required for Tron2 robot control. '
                 'Install it with: pip install websocket-client') from exc
-
-        self.ws_url = f'ws://{self.robot_ip}:{self.ws_port}'
 
         # Create WebSocketApp with callbacks
         self.ws_client = websocket.WebSocketApp(
