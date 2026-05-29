@@ -54,12 +54,24 @@ class Tron2InferenceRunner(BaseInferenceRunner):
                  enable_head_control: bool = False,
                  async_execution: bool = False,
                  execute_horizon: int = None,
+                 action_layout: str = 'tron2_18',
+                 dry_run: bool = False,
                  *args,
                  **kwargs):
         self.gripper_threshold = gripper_threshold
         self.enable_head_control = enable_head_control
         self.async_execution = async_execution
         self.execute_horizon = execute_horizon
+        self.action_layout = action_layout
+        self.dry_run = dry_run
+        if self.action_layout not in ('tron2_18', 'tron2_16'):
+            raise ValueError(
+                f'Unsupported action_layout: {self.action_layout}. '
+                "Expected one of {'tron2_18', 'tron2_16'}")
+        if self.action_layout == 'tron2_16' and self.enable_head_control:
+            raise ValueError(
+                'action_layout=tron2_16 does not include head actions. '
+                'Set enable_head_control=False.')
         # Set Tron2-specific defaults
         if 'camera_names' not in kwargs or kwargs['camera_names'] is None:
             kwargs['camera_names'] = [
@@ -169,10 +181,11 @@ class Tron2InferenceRunner(BaseInferenceRunner):
         camera images from three viewpoints.
 
         Returns:
-            Dict: Latest observation containing:
-                - 'qpos': 18 dims: 7 left + 7 right + 2 head
-                    + 1 left_grip(0-1) + 1 right_grip(0-1)
-                - Camera images keyed by camera names
+            Dict: Latest observation containing camera images keyed by
+                camera_names and a qpos vector matching action_layout:
+                - tron2_18: left7 + right7 + head2 + left_gripper
+                    + right_gripper
+                - tron2_16: left7 + left_gripper + right7 + right_gripper
 
         Note:
             The first observation in a new window is a dummy placeholder
@@ -204,11 +217,18 @@ class Tron2InferenceRunner(BaseInferenceRunner):
         gripper_pos = robot_gripper.position
         left_gripper = np.array(gripper_pos[0:1])
         right_gripper = np.array(gripper_pos[1:2])
-        qpos = np.concatenate(
-            (np.array(arm_left.position), np.array(arm_right.position),
-             np.array(head.position), left_gripper, right_gripper),
-            axis=0,
-        )
+        left_arm = np.array(arm_left.position)
+        right_arm = np.array(arm_right.position)
+        head_joints = np.array(head.position)
+        if self.action_layout == 'tron2_16':
+            qpos = np.concatenate(
+                (left_arm, left_gripper, right_arm, right_gripper), axis=0)
+        else:
+            qpos = np.concatenate(
+                (left_arm, right_arm, head_joints, left_gripper,
+                 right_gripper),
+                axis=0,
+            )
 
         # Create observation dictionary
         observation = {
@@ -225,8 +245,8 @@ class Tron2InferenceRunner(BaseInferenceRunner):
         """Move robot to predefined preparation pose.
 
         Supports prepare_pose as:
-        - 18-dim: [left(7), right(7), head(2), left_gripper(0-1),
-          right_gripper(0-1)]
+        - 18-dim: left7 + right7 + head2 + left_gripper + right_gripper
+        - 16-dim: left7 + left_gripper + right7 + right_gripper
         - List of 18-dim lists: execute each pose sequentially
         """
         if self.prepare_pose is None:
@@ -242,14 +262,23 @@ class Tron2InferenceRunner(BaseInferenceRunner):
 
         for pose in poses:
             pose = np.array(pose)
-            left_joints = pose[:7]
-            right_joints = pose[7:14]
-            # head at indices 14-15, grippers at 16-17
-            head_joints = (
-                list(pose[14:16])
-                if self.enable_head_control and len(pose) > 15 else None)
-            left_gripper = pose[16] if len(pose) > 16 else None
-            right_gripper = pose[17] if len(pose) > 17 else None
+            if len(pose) == 16:
+                left_joints = pose[:7]
+                left_gripper = pose[7]
+                right_joints = pose[8:15]
+                right_gripper = pose[15]
+                head_joints = None
+            elif len(pose) >= 18:
+                left_joints = pose[:7]
+                right_joints = pose[7:14]
+                head_joints = (
+                    list(pose[14:16]) if self.enable_head_control else None)
+                left_gripper = pose[16]
+                right_gripper = pose[17]
+            else:
+                raise ValueError(
+                    f'Unsupported prepare_pose length: {len(pose)}. '
+                    'Expected 16 or 18.')
 
             self.ros_operator.move_to_targets(
                 left_joints,
@@ -263,19 +292,48 @@ class Tron2InferenceRunner(BaseInferenceRunner):
 
     def _predict_action(self, inputs: dict):
         self._action_ctx.inference_start = time.time()
-        raw_action = self.vla.predict_action(**inputs)
-        return raw_action
+        return super()._predict_action(inputs)
 
-    # Action layout: [left_arm(7), right_arm(7), head(2),
-    # left_gripper(1), right_gripper(1)]
-    LEFT_GRIPPER_COL = 16
-    RIGHT_GRIPPER_COL = 17
+    # Layouts:
+    # - tron2_18: left7 + right7 + head2 + left_gripper + right_gripper
+    # - tron2_16: left7 + left_gripper + right7 + right_gripper
     GRIPPER_CLOSED = 0.0
+
+    def _action_parts(self, actions: np.ndarray):
+        """Split denormalized action chunks into robot command arrays."""
+        if actions.ndim != 2:
+            raise ValueError(
+                f'Tron2 actions must be 2-D [T, D], got {actions.shape}')
+        if self.action_layout == 'tron2_16':
+            if actions.shape[1] < 16:
+                raise ValueError(
+                    f'tron2_16 expects action dim >= 16, got {actions.shape}')
+            return dict(
+                left_arm=actions[:, :7],
+                right_arm=actions[:, 8:15],
+                left_gripper=actions[:, 7],
+                right_gripper=actions[:, 15],
+                head=None)
+        if actions.shape[1] < 18:
+            raise ValueError(
+                f'tron2_18 expects action dim >= 18, got {actions.shape}')
+        return dict(
+            left_arm=actions[:, :7],
+            right_arm=actions[:, 7:14],
+            left_gripper=actions[:, 16],
+            right_gripper=actions[:, 17],
+            head=actions[:, 14:16] if self.enable_head_control else None)
 
     def _postprocess_actions(self, raw_action):
         """Denormalize and snap near-closed grippers to fully closed."""
         actions = super()._postprocess_actions(raw_action)
-        for col in (self.LEFT_GRIPPER_COL, self.RIGHT_GRIPPER_COL):
+        gripper_cols = (7, 15) if self.action_layout == 'tron2_16' else (16,
+                                                                         17)
+        for col in gripper_cols:
+            if actions.shape[1] <= col:
+                raise ValueError(
+                    f'{self.action_layout} expects gripper column {col}, '
+                    f'but action shape is {actions.shape}')
             actions[:,
                     col] = np.where(actions[:, col] < self.gripper_threshold,
                                     self.GRIPPER_CLOSED, actions[:, col])
@@ -300,15 +358,21 @@ class Tron2InferenceRunner(BaseInferenceRunner):
             if self.execute_horizon is not None:
                 actions = actions[:self.execute_horizon]
 
-        head_trajectory = actions[:,
-                                  14:16] if self.enable_head_control else None
+        parts = self._action_parts(actions)
+
+        if self.dry_run:
+            print('[Tron2InferenceRunner] dry_run=True, skip execution. '
+                  f'action_shape={actions.shape}, '
+                  f'layout={self.action_layout}, '
+                  f'first_action={actions[0].tolist()}')
+            return
 
         self.ros_operator.execute_trajectory(
-            left_arm_trajectory=actions[:, :7],
-            right_arm_trajectory=actions[:, 7:14],
-            left_gripper_trajectory=actions[:, 16],
-            right_gripper_trajectory=actions[:, 17],
-            head_trajectory=head_trajectory,
+            left_arm_trajectory=parts['left_arm'],
+            right_arm_trajectory=parts['right_arm'],
+            left_gripper_trajectory=parts['left_gripper'],
+            right_gripper_trajectory=parts['right_gripper'],
+            head_trajectory=parts['head'],
             dt=self.dt,
             async_exec=self.async_execution)
 

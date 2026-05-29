@@ -302,9 +302,12 @@ class DenormalizePrivateAction(DenormalizeLiberoAction):
         """
         if self.norm_stats is not None and self.denorm_action:
             norm_stats = self.norm_stats['private']
-            action = data.get('action', None)[0]
+            action = data.get('action', None)
             assert action is not None, \
                 f'Action is not found in the data: {data.keys()}'
+            action = np.asarray(action)
+            if action.ndim == 3:
+                action = action[0]
             if self.norm_type == 'quantile':
                 action = self._denormalize_quantile(action,
                                                     norm_stats['action'])

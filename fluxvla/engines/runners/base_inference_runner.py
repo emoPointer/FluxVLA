@@ -500,7 +500,10 @@ class BaseInferenceRunner:
             np.ndarray: Denormalized actions, truncated to action_chunk.
         """
         if self._use_remote:
-            return raw_action.cpu().numpy()[:self.action_chunk]
+            actions = raw_action.cpu().numpy()
+            if actions.ndim == 3 and actions.shape[0] == 1:
+                actions = actions[0]
+            return actions[:self.action_chunk]
         denormalized = self.denormalize_action(
             dict(action=raw_action.cpu().numpy()))
         return denormalized[:self.action_chunk]
