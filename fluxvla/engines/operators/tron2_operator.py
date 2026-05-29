@@ -624,12 +624,8 @@ class Tron2Operator:
     def _init_ros(self):
         """Initialize ROS node, subscribers, and runtime state."""
         import rospy
-        from cv_bridge import CvBridge
         from geometry_msgs.msg import PoseStamped
         from sensor_msgs.msg import Image, JointState
-
-        # Initialize OpenCV bridge
-        self.bridge = CvBridge()
 
         # Initialize message queues for images
         self.img_left_deque = deque()
@@ -850,18 +846,15 @@ class Tron2Operator:
         # Synchronize and extract RGB images
         while self.img_left_deque[0].header.stamp.to_sec() < frame_time:
             self.img_left_deque.popleft()
-        img_left = self.bridge.imgmsg_to_cv2(self.img_left_deque.popleft(),
-                                             'passthrough')
+        img_left = self._image_msg_to_numpy(self.img_left_deque.popleft())
 
         while self.img_right_deque[0].header.stamp.to_sec() < frame_time:
             self.img_right_deque.popleft()
-        img_right = self.bridge.imgmsg_to_cv2(self.img_right_deque.popleft(),
-                                              'passthrough')
+        img_right = self._image_msg_to_numpy(self.img_right_deque.popleft())
 
         while self.img_top_deque[0].header.stamp.to_sec() < frame_time:
             self.img_top_deque.popleft()
-        img_top = self.bridge.imgmsg_to_cv2(self.img_top_deque.popleft(),
-                                            'passthrough')
+        img_top = self._image_msg_to_numpy(self.img_top_deque.popleft())
 
         # Extract from merged joint_state_deque (16 DOF: 14 arm + 2 head)
         while self.joint_state_deque[0].header.stamp.to_sec() < frame_time:
@@ -913,23 +906,101 @@ class Tron2Operator:
             while self.img_left_depth_deque[0].header.stamp.to_sec(
             ) < frame_time:
                 self.img_left_depth_deque.popleft()
-            img_left_depth = self.bridge.imgmsg_to_cv2(
-                self.img_left_depth_deque.popleft(), 'passthrough')
+            img_left_depth = self._image_msg_to_numpy(
+                self.img_left_depth_deque.popleft())
 
             while self.img_right_depth_deque[0].header.stamp.to_sec(
             ) < frame_time:
                 self.img_right_depth_deque.popleft()
-            img_right_depth = self.bridge.imgmsg_to_cv2(
-                self.img_right_depth_deque.popleft(), 'passthrough')
+            img_right_depth = self._image_msg_to_numpy(
+                self.img_right_depth_deque.popleft())
 
             while self.img_top_depth_deque[0].header.stamp.to_sec(
             ) < frame_time:
                 self.img_top_depth_deque.popleft()
-            img_top_depth = self.bridge.imgmsg_to_cv2(
-                self.img_top_depth_deque.popleft(), 'passthrough')
+            img_top_depth = self._image_msg_to_numpy(
+                self.img_top_depth_deque.popleft())
 
         return (img_top, img_left, img_right, img_top_depth, img_left_depth,
                 img_right_depth, left_arm, right_arm, head, gripper)
+
+    @staticmethod
+    def _image_msg_to_numpy(msg):
+        """Convert a sensor_msgs/Image message to a numpy array.
+
+        This covers the image encodings used by the Tron2 RGB/depth topics
+        without importing cv_bridge's binary extension, which is sensitive to
+        Conda/ROS dynamic-library conflicts on robot clients.
+        """
+        encoding = msg.encoding.lower()
+        encoding_map = {
+            'rgb8': (np.uint8, 3),
+            'bgr8': (np.uint8, 3),
+            'rgba8': (np.uint8, 4),
+            'bgra8': (np.uint8, 4),
+            'mono8': (np.uint8, 1),
+            '8uc1': (np.uint8, 1),
+            '8uc3': (np.uint8, 3),
+            'mono16': (np.uint16, 1),
+            '16uc1': (np.uint16, 1),
+            '16sc1': (np.int16, 1),
+            '32fc1': (np.float32, 1),
+        }
+
+        if encoding in encoding_map:
+            dtype, channels = encoding_map[encoding]
+        else:
+            dtype, channels = Tron2Operator._parse_generic_image_encoding(
+                encoding)
+
+        dtype = np.dtype(dtype)
+        if dtype.itemsize > 1:
+            byteorder = '>' if msg.is_bigendian else '<'
+            buffer_dtype = dtype.newbyteorder(byteorder)
+        else:
+            buffer_dtype = dtype
+
+        row_bytes = msg.width * channels * dtype.itemsize
+        if msg.step < row_bytes:
+            raise ValueError(f'Image step {msg.step} is smaller than row size '
+                             f'{row_bytes} for encoding {msg.encoding}')
+
+        expected_size = msg.height * msg.step
+        raw = np.frombuffer(msg.data, dtype=np.uint8)
+        if raw.size < expected_size:
+            raise ValueError(
+                f'Image data has {raw.size} bytes, expected at least '
+                f'{expected_size} for encoding {msg.encoding}')
+
+        rows = raw[:expected_size].reshape(msg.height, msg.step)
+        image = rows[:, :row_bytes].copy().view(buffer_dtype)
+        if channels == 1:
+            image = image.reshape(msg.height, msg.width)
+        else:
+            image = image.reshape(msg.height, msg.width, channels)
+
+        if not image.dtype.isnative:
+            image = image.byteswap().view(dtype)
+        return image
+
+    @staticmethod
+    def _parse_generic_image_encoding(encoding: str):
+        """Parse encodings like 8UC4, 16SC2, or 32FC1."""
+        prefixes = (
+            ('8uc', np.uint8),
+            ('8sc', np.int8),
+            ('16uc', np.uint16),
+            ('16sc', np.int16),
+            ('32sc', np.int32),
+            ('32fc', np.float32),
+            ('64fc', np.float64),
+        )
+        for prefix, dtype in prefixes:
+            if encoding.startswith(prefix):
+                channels_text = encoding[len(prefix):]
+                channels = int(channels_text) if channels_text else 1
+                return dtype, channels
+        raise ValueError(f'Unsupported ROS image encoding: {encoding}')
 
     # ========== ROS Callbacks ==========
 
