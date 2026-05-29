@@ -82,8 +82,8 @@ class Tron2InferenceRunner(BaseInferenceRunner):
             kwargs['operator'] = {
                 'type': 'Tron2Operator',
                 'img_top_topic': '/camera/top/color/image_raw',
-                'img_left_topic': '/camera/left/color/image_rect_raw',
-                'img_right_topic': '/camera/right/color/image_rect_raw',
+                'img_left_topic': '/camera/left/color/image_raw',
+                'img_right_topic': '/camera/right/color/image_raw',
                 'img_top_depth_topic': '/camera/top/depth/image_raw',
                 'img_left_depth_topic': '/camera/left/depth/image_rect_raw',
                 'img_right_depth_topic': '/camera/right/depth/image_rect_raw',

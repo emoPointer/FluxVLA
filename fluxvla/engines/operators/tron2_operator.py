@@ -53,8 +53,8 @@ class Tron2Operator:
     def __init__(
             self,
             # Camera topics
-            img_left_topic: str = '/camera/left/color/image_rect_raw',
-            img_right_topic: str = '/camera/right/color/image_rect_raw',
+            img_left_topic: str = '/camera/left/color/image_raw',
+            img_right_topic: str = '/camera/right/color/image_raw',
             img_top_topic: str = '/camera/top/color/image_raw',
             # Depth image topics (required if use_depth_image=True)
             img_left_depth_topic: str = '/camera/left/depth/image_rect_raw',

@@ -207,8 +207,8 @@ inference = dict(
     ),
     operator=dict(
         type='Tron2Operator',
-        img_left_topic='/camera/left/color/image_rect_raw',
-        img_right_topic='/camera/right/color/image_rect_raw',
+        img_left_topic='/camera/left/color/image_raw',
+        img_right_topic='/camera/right/color/image_raw',
         img_top_topic='/camera/top/color/image_raw',
         joint_state_topic='/joint_states',
         gripper_state_topic='/gripper_state',
