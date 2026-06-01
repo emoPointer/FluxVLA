@@ -294,5 +294,5 @@ inference = dict(
         gripper_state_topic='/gripper_state',
         ee_pose_left_topic='/left_arm/ee_pose',
         ee_pose_right_topic='/right_arm/ee_pose',
-        ws_accid='DACH_TRON2A_091',
+        ws_accid=None,
     ))
