@@ -80,6 +80,7 @@ Status values:
 | Alibaba Wan2.1 modules           | `fluxvla/models/third_party_models/dreamzero`       | `https://github.com/Wan-Video/Wan2.1`      | Local attribution says Apache-2.0 | Preserve attribution and confirm copied files match upstream license.                                                |
 | Hugging Face Diffusers scheduler | `fluxvla/models/third_party_models/dreamzero`       | `https://github.com/huggingface/diffusers` | Local attribution says Apache-2.0 | Preserve attribution and confirm copied file origin/ref.                                                             |
 | NVIDIA Isaac-GR00T Eagle2 files  | `fluxvla/models/third_party_models/eagle2_hg_model` | `https://github.com/NVIDIA/Isaac-GR00T`    | Needs review                      | Local attribution lacks an explicit license field; confirm upstream license and redistribution terms before release. |
+| X-VLA / Florence-2 components    | `fluxvla/models/third_party_models/xvla_models`     | `https://github.com/2toINF/X-VLA`          | Local attribution says Apache-2.0 | Preserve upstream Microsoft/Hugging Face notices and local X-VLA origin comments.                                    |
 
 ## Data, Checkpoints, and Generated Outputs
 

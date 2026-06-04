@@ -1,5 +1,7 @@
 # Training and Deploying FluxVLA on a New Tron2
 
+[English](README.md) | [简体中文](README_zh-CN.md)
+
 Original upstream FluxVLA README:
 https://github.com/FluxVLA/FluxVLA/blob/main/README.md.
 

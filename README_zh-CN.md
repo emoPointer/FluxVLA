@@ -1,634 +1,607 @@
-# FluxVLA引擎：专为具身智能打造的“一站式”VLA 工程平台
+# 在新 Tron2 上训练与部署 FluxVLA
 
-<p align="center">
-  <img src="assets/fluxvla.png" alt="FluxVLA" width="600">
-</p>
+[English](README.md) | 简体中文
 
-<div align="center">
-<a href="https://huggingface.co/limxdynamics/FluxVLAEngine"><img src="https://img.shields.io/badge/HuggingFace-yellow?logo=huggingface&logoColor=white" alt="Hugging Face"></a>
-<a href="https://fluxvla.limxdynamics.com"><img src="https://img.shields.io/badge/Documentation-Purple?color=8A2BE2&logo=readthedocs"></a>
-<a href="https://fluxvla.limxdynamics.com/zh/"><img src="https://img.shields.io/badge/中文文档-red?logo=readthedocs"></a>
-<a href="https://github.com/limxdynamics/FluxVLA/issues/1"><img src="https://img.shields.io/badge/微信-green?logo=wechat"></a>
-<a href="https://github.com/limxdynamics/FluxVLA/issues/1"><img src="https://img.shields.io/badge/飞书-3370FF?logo=lark&logoColor=white"></a>
-</div>
+原始上游 FluxVLA README：
+https://github.com/FluxVLA/FluxVLA/blob/main/README.md。
 
-<div align="center">
+本项目基于上游 [FluxVLA](https://github.com/FluxVLA/FluxVLA) 项目开发。
+感谢他们的杰出工作。
 
-[English](README.md) | 简体中文 | [日本語](README_ja.md)
+本文档介绍如何使用自定义 Tron2 数据对 PI0.5 进行 LoRA 微调，并通过
+remote inference 在真实 Tron2 上部署策略。常见部署形态是：GPU
+工作站/服务器负责模型训练和推理，Tron2 外挂算力模块负责采集 ROS
+观测、通过 SSH 隧道请求远程推理，并通过 Tron2 WebSocket 控制服务执行动作。
 
-</div>
+当前 Tron2 PI0.5 LoRA 配置文件是：
 
-FluxVLA Engine是面向具身智能落地应用的全链路一体化工程平台，以统一配置、标准接口、模块解耦、可部署为核心设计理念，构建从数据到真机部署的完整工程闭环，并以“标准化产学研基座”为目标，显著降低 VLA 研究与开发的工程门槛。
+```text
+configs/pi05/pi05_paligemma_tron2_lora_finetune.py
+```
 
-## 框架
+当前部署链路是：
 
-<p align="center">
-  <img src="assets/framework.png" alt="Framework Architecture" width="800">
-</p>
+```text
+Tron2 ROS topics -> robot-side FluxVLA client -> SSH tunnel -> GPU server ZMQ
+    -> PI0.5 policy inference -> action returned to robot client
+    -> Tron2 WebSocket control service
+```
 
-## 性能
+## 1. 硬件与网络假设
 
-| Codebase                    |                                                     Libero-Spatial                                                      |                                                     Libero-Object                                                      |                                                     Libero-Goal                                                      |                                                     Libero-Long                                                     | Libero-Average |
-| --------------------------- | :---------------------------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------: | :------------: |
-| FluxVLA(SmolVLA)            |      [86.2](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/smolvla_libero_spatial_full_finetune_bs64)      |      [92.4](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/smolvla_libero_object_full_finetune_bs64)      |      [91.4](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/smolvla_libero_goal_full_finetune_bs64)      |      [68.8](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/smolvla_libero_10_full_finetune_bs64)       |      84.7      |
-| FluxVLA(GR00T)              |  [97.4](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/gr00t_eagle_3b_libero_spatial_full_finetune_bs64)   |  [96.2](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/gr00t_eagle_3b_libero_object_full_finetune_bs64)   |  [94.6](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/gr00t_eagle_3b_libero_goal_full_finetune_bs64)   | [93.0±1.5](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/gr00t_eagle_3b_libero_10_full_finetune_bs64) |      95.3      |
-| FluxVLA(DreamZero)          | [98.2](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/dreamzero_libero_spatial_full_finetune_w_cache_bs64) | [98.8](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/dreamzero_libero_object_full_finetune_w_cache_bs64) | [93.2](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/dreamzero_libero_goal_full_finetune_w_cache_bs64) | [94.8](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/dreamzero_libero_10_full_finetune_w_cache_bs64)  |     96.25      |
-| FluxVLA(Qwen3VL 0.6B+GR00T) |                                                          98.6                                                           |                                                          99.6                                                          |                                                         95.6                                                         |                                                      92.2±1.8                                                       |     96.50      |
-| FluxVLA(PI0)                |   [98.6](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi0_paligemma_libero_spatial_full_finetune_bs64)   |   [98.8](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi0_paligemma_libero_object_full_finetune_bs64)   |   [96.8](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi0_paligemma_libero_goal_full_finetune_bs64)   |   [93.2](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi0_paligemma_libero_10_full_finetune_bs64)    |     96.85      |
-| FluxVLA(PI0.5)              |  [98.6](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi05_paligemma_libero_spatial_full_finetune_bs64)   |  [99.6](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi05_paligemma_libero_object_full_finetune_bs64)   |  [98.0](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi05_paligemma_libero_goal_full_finetune_bs64)   | [95.6±1.0](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi05_paligemma_libero_10_full_finetune_bs64) |     97.95      |
+本文档假设存在三个逻辑组件：
 
-*带链接的分数可跳转到对应 checkpoint。*
+| 组件                    | 作用                                           |
+| ----------------------- | ---------------------------------------------- |
+| GPU server              | 微调 PI0.5，并通过 ZMQ 提供远程推理服务        |
+| Power Computing Module  | Tron2 外挂算力模块，运行 ROS 和 FluxVLA 客户端 |
+| Internal robot computer | 机器人内部控制电脑，通常不直接开放给用户       |
 
-## 📢 最新动态
+Tron2 通常有两台电脑。内部机器人电脑在机器人内部，一般不直接开放给用户。
+用户侧主要使用外挂的 Power Computing Module，通常挂在机器人外部，IP
+一般是 `10.192.1.4`。
 
-**\[2026/04/22\]** 🔥 现已支持基于 ZMQ 的远程推理框架。
+在当前部署方式中，Power Computing Module 通过 SSH 访问 GPU server。
+机器人侧客户端会建立本地端口转发：
 
-**\[2026/04/15\]** 🔥 现已支持世界动作模型 DreamZero。
+```text
+Power Computing Module localhost:5555 -> GPU server 127.0.0.1:3333
+```
 
-**\[2026/04/08\]** 🔥 FluxVLA开源了。
+Tron2 控制 WebSocket 与 remote inference 是两条不同链路。WebSocket
+只在真正执行动作时使用：
 
-## 🛠️ 安装
+```text
+ws://<TRON2_CONTROLLER_IP>:<TRON2_WS_PORT>
+```
 
-以下安装指南以 NVCC 12.4 为例。如果你的环境不同，请相应调整 CUDA 版本。
+多数 Tron2 部署中，控制器 IP 是 `10.192.1.2`，端口是 `5000`：
 
-<details>
-<summary><b>1. 创建 conda 环境</b></summary>
+```text
+TRON2_CONTROLLER_IP = 10.192.1.2
+TRON2_WS_PORT       = 5000
+TRON2_WS_ACCID      = <YOUR_TRON2_ACCID>
+```
+
+新机器人一般不需要修改 `robot_ip`，保持 `10.192.1.2` 即可；如控制器
+无法自动识别，则需要设置当前机器人的 `ws_accid`。
+
+重要提醒：remote inference 要求 Power Computing Module 能访问 GPU
+server。机器人连接公网可以在 `10.192.1.2:8080` Web 界面配置 Wi-Fi，
+也可以把有线网络接入 Power Computing Module 的任意 ETH 口。
+
+## 2. 准备 GPU Server
+
+在 GPU server 上安装完整 FluxVLA 训练环境。安装步骤参考上游
+[FluxVLA](https://github.com/FluxVLA/FluxVLA) 项目。本文档默认 conda
+环境名为 `fluxvla`。
+
+```bash
+conda activate fluxvla
+cd /path/to/FluxVLA
+```
+
+PI0.5 base 权重应放在：
+
+```text
+checkpoints/pi05_base/
+```
+
+配置至少需要：
+
+```text
+checkpoints/pi05_base/model.safetensors
+checkpoints/pi05_base/tokenizer_config.json
+checkpoints/pi05_base/tokenizer.model or tokenizer.json
+```
+
+不要把 tokenizer 指向训练输出目录，除非该目录包含完整 Hugging Face
+tokenizer。Tron2 LoRA 配置里应保持：
+
+```python
+model_path='checkpoints/pi05_base'
+```
+
+## 3. 准备数据集
+
+数据可以直接从云端数据平台导出。云端数据平台登录地址和账号请向交付人员获取。
+
+将 LeRobot 格式的 Tron2 数据放到 `datasets/` 下。默认配置使用：
+
+```text
+datasets/lerobot_dataset
+```
+
+如果数据路径不同，修改：
+
+```python
+train_dataloader.dataset.datasets[0].data_root_path
+```
+
+当前配置期望的数据字段是：
+
+| 字段                                 | 含义           |
+| ------------------------------------ | -------------- |
+| `observation.state`                  | 机器人本体状态 |
+| `action` / `actions`                 | 动作序列       |
+| `observation.images.cam_high`        | 顶部 RGB 相机  |
+| `observation.images.cam_left_wrist`  | 左侧 RGB 相机  |
+| `observation.images.cam_right_wrist` | 右侧 RGB 相机  |
+
+当前动作维度是 16 维：
+
+```text
+left_arm(7) + left_gripper(1) + right_arm(7) + right_gripper(1)
+```
+
+PI0.5 内部仍会把 state/action padding 到 32 维以保持兼容，但动作反归一化
+和执行只使用前 16 维。
+
+训练前至少检查：
+
+```bash
+ls datasets/lerobot_dataset
+```
+
+并人工确认几个 episode：
+
+- 相机名称与配置一致；
+- action 维度是 16；
+- gripper 开合约定与训练和执行一致；
+- task language 正确；
+- 失败或异常 episode 已移除。
+
+## 4. 修改 Tron2 配置
+
+从下面这个配置开始：
+
+```text
+configs/pi05/pi05_paligemma_tron2_lora_finetune.py
+```
+
+### 数据路径
+
+```python
+data_root_path=[
+    './datasets/lerobot_dataset',
+]
+```
+
+### 任务描述
+
+```python
+task_descriptions={
+    '1': 'Pick up the banana from the desk and place it on the plate',
+}
+```
+
+客户端运行时会要求输入 task ID。输入 `1` 时，模型会收到这里对应的任务描述。
+
+### ROS 话题
+
+当前配置使用：
+
+```python
+operator=dict(
+    type='Tron2Operator',
+    img_left_topic='/camera/left/color/image_raw',
+    img_right_topic='/camera/right/color/image_raw',
+    img_top_topic='/camera/top/color/image_raw',
+    joint_state_topic='/joint_states',
+    gripper_state_topic='/gripper_state',
+    ee_pose_left_topic='/left_arm/ee_pose',
+    ee_pose_right_topic='/right_arm/ee_pose',
+    ws_accid=None,
+)
+```
+
+在新机器人上，先查看话题：
+
+```bash
+rostopic list
+```
+
+再检查频率：
+
+```bash
+rostopic hz /camera/left/color/image_raw
+rostopic hz /camera/right/color/image_raw
+rostopic hz /camera/top/color/image_raw
+rostopic hz /joint_states
+rostopic hz /gripper_state
+```
+
+如果话题不同，需要先更新配置。
+
+### WebSocket 控制参数
+
+WebSocket 控制器 IP 一般是 `10.192.1.2`，通常不用改。机器人相关的值主要是
+`ws_accid`：
+
+```python
+robot_ip='10.192.1.2'
+ws_port=5000
+ws_accid=None
+```
+
+如果控制器无法自动识别 `accid`，请设置当前机器人的账号 ID。
+
+## 5. 使用 LoRA 微调 PI0.5
+
+当前 LoRA 设置在 model 配置中：
+
+```python
+use_lora=True
+lora_rank=256
+lora_alpha=512
+lora_dropout=0.0
+modules_to_save=[
+    'action_in_proj',
+    'action_out_proj',
+    'time_mlp_in',
+    'time_mlp_out',
+]
+```
+
+当前训练计划：
+
+```python
+runner.max_steps=30000
+train_dataloader.per_device_batch_size=16
+```
+
+4 张 GPU 时，全局 batch size 为 64：
+
+```text
+16 per GPU x 4 GPUs = 64
+```
+
+示例训练命令：
+
+```bash
+conda activate fluxvla
+cd /path/to/FluxVLA
+
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+export WANDB_PROJECT=fluxvla-tron2
+
+NPROC_PER_NODE=4 bash scripts/train.sh \
+  configs/pi05/pi05_paligemma_tron2_lora_finetune.py \
+  work_dirs/pi05_paligemma_tron2_lora_finetune \
+  --cfg-options \
+  train_dataloader.per_device_batch_size=16 \
+  runner.max_steps=30000
+```
+
+恢复训练：
+
+```bash
+NPROC_PER_NODE=4 bash scripts/train.sh \
+  configs/pi05/pi05_paligemma_tron2_lora_finetune.py \
+  work_dirs/pi05_paligemma_tron2_lora_finetune \
+  --resume-from /path/to/checkpoint.pt
+```
+
+训练输出位于：
+
+```text
+work_dirs/pi05_paligemma_tron2_lora_finetune/
+```
+
+推理服务通常使用 `.safetensors` checkpoint：
+
+```text
+work_dirs/pi05_paligemma_tron2_lora_finetune/checkpoints/step-XXXXX.safetensors
+```
+
+训练脚本也会在 work directory 中保存 dataset statistics，remote inference
+会使用这些统计信息做动作反归一化。
+
+## 6. 启动 Remote Inference Server
+
+在 GPU server 上运行。
+
+如果机器人只能通过 SSH tunnel 访问服务器，ZMQ server 绑定到 `127.0.0.1`：
+
+```bash
+conda activate fluxvla
+cd /path/to/FluxVLA
+
+python -m fluxvla.engines.runners.serving.serve \
+  --config configs/pi05/pi05_paligemma_tron2_lora_finetune.py \
+  --ckpt-path work_dirs/pi05_paligemma_tron2_lora_finetune/checkpoints/step-XXXXX.safetensors \
+  --host 127.0.0.1 \
+  --port 3333 \
+  --device cuda:0 \
+  --dtype bf16
+```
+
+如果机器人能在局域网直接访问服务器，可以绑定到 `0.0.0.0` 或服务器局域网 IP。
+
+服务端会加载：
+
+1. PI0.5 模型；
+2. LoRA checkpoint；
+3. inference dataset preprocessing pipeline；
+4. 动作反归一化 transform；
+5. 训练 work directory 中的 `dataset_statistics.json`。
+
+## 7. 准备 Power Computing Module
+
+Power Computing Module 不需要完整 CUDA 训练栈，只需要运行轻量 remote client。
+
+安装 Miniconda：
+
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+```
+
+创建环境：
 
 ```bash
 conda create -n fluxvla python=3.10 -y
 conda activate fluxvla
 ```
 
-</details>
-
-<details>
-<summary><b>2. 安装 PyTorch（CUDA 版本）</b></summary>
-
-> **重要**：在执行 `pip install -r requirements.txt` 之前，**必须**先从官方 CUDA 索引安装 PyTorch。默认 PyPI 索引无法获取 CUDA 版本构建。
+安装客户端依赖：
 
 ```bash
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+pip install mmengine pyzmq msgpack numpy safetensors websocket-client
+pip install rospkg catkin_pkg empy defusedxml netifaces
 ```
 
-对于其他 CUDA 版本，请将 `cu124` 替换为对应值（例如 `cu118`、`cu121`）。详见 [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/) 。
-
-</details>
-
-<details>
-<summary><b>3. 安装 flash-attention</b></summary>
-
-方式 1：通过 pip 直接安装：
+运行客户端前 source ROS：
 
 ```bash
-pip install psutil ninja packaging
-# MAX_JOBS 控制并行编译线程数，请根据机器资源调整
-MAX_JOBS=8 pip install flash-attn==2.5.5 --no-build-isolation --find-links https://github.com/Dao-AILab/flash-attention/releases
+source /opt/ros/noetic/setup.bash
 ```
 
-方式 2：源码编译安装（若方式 1 失败，推荐使用）：
+Power Computing Module 上不要求执行 `pip install -e .`。客户端脚本会设置：
 
 ```bash
-git clone https://github.com/Dao-AILab/flash-attention.git
-cd flash-attention
-git checkout v2.5.5
-# MAX_JOBS 控制并行编译线程数，请根据机器资源调整
-MAX_JOBS=8 python setup.py install
+FLUXVLA_REMOTE_CLIENT_ONLY=1
+PYTHONPATH="$(pwd):${PYTHONPATH}"
 ```
 
-</details>
+这可以避免在机器人侧导入完整模型/CUDA 栈。
 
-<details>
-<summary><b>4. 安装 av</b></summary>
+## 8. 检查 ROS 与 WebSocket
+
+检查 ROS 话题频率：
 
 ```bash
-conda install -c conda-forge av=14.4.0
+rostopic hz /camera/left/color/image_raw
+rostopic hz /camera/right/color/image_raw
+rostopic hz /camera/top/color/image_raw
+rostopic hz /joint_states
+rostopic hz /gripper_state
 ```
 
-</details>
-
-<details>
-<summary><b>5. 安装 fluxvla 及其余依赖</b></summary>
+检查 Tron2 WebSocket 控制服务：
 
 ```bash
-pip install -r requirements.txt
-pip install --no-build-isolation -e .
+ping -c 3 10.192.1.2
 ```
-
-> **说明**：`requirements.txt` 固定了 `torch==2.6.0`，以避免 pip 意外替换掉第 2 步安装的 CUDA 版 PyTorch。若需使用其他 torch 版本，请同时更新第 2 步命令与 `requirements.txt` 中的版本。
-
-</details>
-
-<details>
-<summary><b>在线评估环境（LIBERO / EGL）</b></summary>
-
-如果你要在不支持光线追踪的设备（如 A100）上评估 LIBERO，请参考 [EGL Device GPU Rendering Configuration](https://github.com/google-deepmind/mujoco/issues/572#issuecomment-2419965230)。
-
-**安装系统依赖**
 
 ```bash
-export MUJOCO_GL=egl
-sudo apt install libegl-dev libgl1-mesa-dev libx11-dev libglew-dev libosmesa6-dev
+python -c "import socket; socket.create_connection(('10.192.1.2', 5000), timeout=3); print('tcp port ok')"
 ```
 
-**环境检查**
+如果 TCP 端口不稳定，先修复 Tron2 控制服务。dry run 可以不依赖
+WebSocket，但真实动作执行必须依赖它。
 
-确认 `/proc/1/environ` 中包含以下环境变量：
+## 9. Dry Run
 
-- `NVIDIA_DRIVER_CAPABILITIES=all`
-- `NVARCH=x86_64`
-- `NVIDIA_REQUIRE_CUDA=cuda>=12.4`
-- `brand=tesla` 且 `driver>=470`
-
-**创建 EGL 配置文件**
-
-创建文件 `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`，内容如下：
-
-```json
-{
-    "file_format_version": "1.0.0",
-    "ICD": {
-        "library_path": "libEGL_nvidia.so.0"
-    }
-}
-```
-
-</details>
-
-<details>
-<summary><b>配置 pre-commit 钩子（可选但推荐）</b></summary>
-
-为保证代码质量与一致性（尤其是 C++/CUDA 代码），建议安装 pre-commit 钩子：
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-这样会在每次提交前自动检查并格式化代码。
-
-</details>
-
-<details>
-<summary><b>配置 Weights & Biases（wandb）</b></summary>
-
-[Weights & Biases](https://wandb.ai/) 用于实验跟踪与可视化。配置方式如下：
-
-1. 安装 wandb（已包含在 requirements.txt 中）：
-
-```bash
-pip install wandb
-```
-
-2. 登录你的 wandb 账号：
-
-```bash
-wandb login
-```
-
-3. 设置环境变量：
-
-```bash
-export WANDB_PROJECT=fluxvla        # 项目名（默认：fluxvla）
-export WANDB_ENTITY=your-team-name  # 团队名或用户名（默认：None）
-export WANDB_MODE=online            # online、offline 或 disabled（默认：online）
-```
-
-4. 如需在训练时禁用 wandb 日志，请设置：
-
-```bash
-export WANDB_MODE=disabled
-```
-
-说明：所有 wandb 配置都通过环境变量读取，无需在配置文件中额外设置。
-
-</details>
-
-<details>
-<summary><b>配置 TensorBoard（可选）</b></summary>
-
-[TensorBoard](https://www.tensorflow.org/tensorboard) 作为可选的日志后端，用于实验指标可视化。配置方式如下：
-
-1. 在配置文件中将 `'tensorboard'` 添加到 `active_trackers`：
+Tron2 LoRA 配置默认：
 
 ```python
-metric=dict(
-    type='VLAMetric',
-    active_trackers=('jsonl', 'wandb', 'tensorboard'),
-    ...
-)
+dry_run=True
 ```
 
-也可以不修改配置文件，通过命令行参数启用：
+dry run 会完成完整感知和远程推理链路，但不会执行机器人动作：
+
+```text
+ROS observations -> SSH tunnel -> GPU inference -> action returned -> print
+```
+
+在 Power Computing Module 上运行：
 
 ```bash
---cfg-options 'runner.metric.active_trackers=[jsonl,wandb,tensorboard]'
+cd ~/FluxVLA
+conda activate fluxvla
+source /opt/ros/noetic/setup.bash
+
+bash scripts/remote_inference_client.sh \
+  configs/pi05/pi05_paligemma_tron2_lora_finetune.py \
+  --ssh-host USER@SERVER_PUBLIC_IP \
+  --ssh-port 22 \
+  --local-port 5555 \
+  --remote-port 3333
 ```
 
-2. 训练完成后，启动 TensorBoard 查看指标：
+如果服务器只能通过 22 端口访问，保留 SSH tunnel 模式。若已配置 SSH key，
+运行时不会再要求输入密码。
+
+dry run 时先输入 task ID `0`，验证 reset / prepare-pose 交互流程，再输入真实
+任务 ID：
+
+```text
+Enter task ID (or press Enter for default): 0
+Enter task ID after reset: 1
+Number of times to repeat the task: 1
+```
+
+dry run 不会真正执行 prepare pose，只验证真实执行前的交互流程。
+
+期望输出包含：
+
+```text
+[Tron2InferenceRunner] dry_run=True, skip execution.
+```
+
+## 10. 真实执行
+
+只有在下面条件都满足后，才运行真实执行：
+
+- dry run 成功；
+- ROS 话题稳定；
+- WebSocket 连接稳定；
+- 现场有物理急停。
+
+首次部署建议使用较短的执行 horizon：
 
 ```bash
-tensorboard --logdir work_dirs/tensorboard
+bash scripts/remote_inference_client.sh \
+  configs/pi05/pi05_paligemma_tron2_lora_finetune.py \
+  --ssh-host USER@SERVER_PUBLIC_IP \
+  --ssh-port 22 \
+  --local-port 5555 \
+  --remote-port 3333 \
+  --cfg-options inference.dry_run=False inference.execute_horizon=4
 ```
 
-说明：每次实验的事件文件保存在 `{work_dir}/tensorboard/{run_id}/` 目录下，多次实验可自动对比。若设置了 `TENSORBOARD_LOG_PATH` 环境变量，将直接使用该路径作为日志目录。
+`inference.execute_horizon=4` 表示每个 action chunk 只执行前 4 步，然后重新
+观测并请求远程推理。初次部署更安全。
 
-</details>
-
-## 数据准备
-
-<details>
-<summary><b>直接使用我们准备好的数据</b></summary>
-
-下载所需数据集并放到 `./datasets` 目录。请根据配置仅下载你需要的数据集。
-
-| 数据集                 | 下载链接                                                                                                                                                               |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| libero-object          | [limxdynamics/FluxVLAData/libero_object_no_noops_lerobotv2.1](https://huggingface.co/datasets/limxdynamics/FluxVLAData/tree/main/libero_object_no_noops_lerobotv2.1)   |
-| libero-spatial         | [limxdynamics/FluxVLAData/libero_spatial_no_noops_lerobotv2.1](https://huggingface.co/datasets/limxdynamics/FluxVLAData/tree/main/libero_spatial_no_noops_lerobotv2.1) |
-| libero-10              | [limxdynamics/FluxVLAData/libero_10_no_noops_lerobotv2.1](https://huggingface.co/datasets/limxdynamics/FluxVLAData/tree/main/libero_10_no_noops_lerobotv2.1)           |
-| libero-goal            | [limxdynamics/FluxVLAData/libero_goal_no_noops_lerobotv2.1](https://huggingface.co/datasets/limxdynamics/FluxVLAData/tree/main/libero_goal_no_noops_lerobotv2.1)       |
-| modified_libero_rlds   | [openvla/modified_libero_rlds](https://huggingface.co/datasets/openvla/modified_libero_rlds)                                                                           |
-| RealRobot_AgileX_aloha | [limxdynamics/FluxVLAData/RealRobot_AgileX_aloha_lerobot_v2](https://huggingface.co/datasets/limxdynamics/FluxVLAData/tree/main/RealRobot_AgileX_aloha_lerobot_v2)     |
-| RealRobot_UR3_Chem     | [limxdynamics/FluxVLAData/RealRobot_UR3_Chem_lerobot_v2](https://huggingface.co/datasets/limxdynamics/FluxVLAData/tree/main/RealRobot_UR3_Chem_lerobot_v2)             |
-
-例如，下载 libero-10 数据集：
+确认行为稳定后，可以去掉 `execute_horizon=4`：
 
 ```bash
-huggingface-cli download limxdynamics/FluxVLAData --repo-type dataset --include "libero_10_no_noops_lerobotv2.1/*" --local-dir ./datasets
+bash scripts/remote_inference_client.sh \
+  configs/pi05/pi05_paligemma_tron2_lora_finetune.py \
+  --ssh-host USER@SERVER_PUBLIC_IP \
+  --ssh-port 22 \
+  --local-port 5555 \
+  --remote-port 3333 \
+  --cfg-options inference.dry_run=False
 ```
 
-将 `libero_10_no_noops_lerobotv2.1` 替换为其他数据集对应的文件夹名即可下载。
+当前配置：
 
-</details>
-
-<details>
-<summary><b>私有数据集目录结构</b></summary>
-
-若使用 fluxvla 在私有数据集上训练，需要先将原始数据（如 ALOHA 双臂机器人采集的 HDF5 文件）转换为 LeRobot Dataset v2.1 格式。详细的转换步骤请参考 [数据转换指南](docs/data_convert.md)。
-
-转换后的数据集目录结构如下：
-
-```
-├── data
-│   └── chunk000
-│   │   └── episode_000000.parquet
-│   │   └── episode_000001.parquet
-│   │   └── ... (更多 parquet 文件)
-│   │   └── episode_00000N.parquet
-│   └── chunk001
-│   └── ... (更多 chunk)
-│   └── chunk00N
-├── meta
-│   └── episodes.jsonl
-│   └── episodes_stats.jsonl
-│   └── info.json
-│   └── tasks.jsonl
-├── videos
-│   └── chunk000
-│   │   └── camera name 0
-│   │   │   └── episode_000000.mp4
-│   │   │   └── episode_000001.mp4
-│   │   │   └── ...(更多 mp4 文件)
-│   │   │   └── episode_00000N.mp4
-│   │   └── camera name 1
-│   └── chunk001
-│   └── ... (更多 chunk)
-│   └── chunk00N
+```python
+action_chunk=32
 ```
 
-</details>
+默认执行完整 32 步 action chunk。
 
-## 🤗 Checkpoint 准备
+## 11. 进入初始位姿
 
-下载所需预训练 checkpoint 并放到 `./checkpoints` 目录。请根据配置仅下载你需要的 checkpoint。
+运行交互中输入 task ID `0`，机器人会进入配置好的 prepare pose：
 
-<details>
-<summary><b>VLA 模型</b></summary>
+```text
+Enter task ID (or press Enter for default): 0
+Enter task ID after reset: 1
+Number of times to repeat the task: 1
+```
 
-| 模型        | 大小 | 下载链接                                                                                   |
-| ----------- | ---- | ------------------------------------------------------------------------------------------ |
-| GR00T N1.5  | 3B   | [🤗 Hugging Face](https://huggingface.co/nvidia/GR00T-N1.5-3B/tree/main)                   |
-| OpenVLA     | 7B   | [🤗 Hugging Face](https://huggingface.co/openvla/openvla-7b-finetuned-libero-10)           |
-| PI0_base    | 3B   | [🤗 Hugging Face](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi0_base)    |
-| PI05_base   | 3B   | [🤗 Hugging Face](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi05_base)   |
-| PI05_libero | 3B   | [🤗 Hugging Face](https://huggingface.co/limxdynamics/FluxVLAEngine/tree/main/pi05_libero) |
+dry run 下不会执行 prepare pose。真实执行模式下，prepare-pose 指令通过
+Tron2 WebSocket 发送。
 
-</details>
+## 12. 安全提醒
 
-<details>
-<summary><b>视觉语言模型（VLM）</b></summary>
+`Ctrl+C` 只会停止本地 FluxVLA client 并关闭 SSH tunnel，不是机器人急停。
+它不会自动卸力，也不能保证已经发送给 Tron2 控制器的指令被取消。
 
-| 模型       | 大小 | 下载链接                                                              |
-| ---------- | ---- | --------------------------------------------------------------------- |
-| Qwen2.5-VL | 3B   | [🤗 Hugging Face](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) |
+新机器人首次部署时：
 
-</details>
+- 操作员应在物理急停旁；
+- 使用 `inference.execute_horizon=4`；
+- 物体摆放保守；
+- 完整运行前先确认夹爪开合约定；
+- 确认 `ws_accid` 属于当前机器人。
 
-<details>
-<summary><b>大语言模型（LLM）</b></summary>
+## 13. 常见问题
 
-| 模型     | 大小 | 下载链接                                                                     |
-| -------- | ---- | ---------------------------------------------------------------------------- |
-| Qwen 2.5 | 3B   | [🤗 Hugging Face](https://huggingface.co/Qwen/Qwen2.5-3B)                    |
-| Qwen 2.5 | 7B   | [🤗 Hugging Face](https://huggingface.co/Qwen/Qwen2.5-7B)                    |
-| Llama 2  | 7B   | [🤗 Hugging Face](https://huggingface.co/meta-llama/Llama-2-7b-hf/tree/main) |
+### `ModuleNotFoundError: No module named 'fluxvla'`
 
-</details>
-
-<details>
-<summary><b>视觉主干网络</b></summary>
-
-| 模型                | 下载链接                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| ViT-Large (DINOv2)  | [🤗 Hugging Face](https://huggingface.co/timm/vit_large_patch14_reg4_dinov2.lvd142m) |
-| ViT-SO400M (SigLIP) | [🤗 Hugging Face](https://huggingface.co/timm/ViT-SO400M-14-SigLIP)                  |
-| SigLIP2             | [🤗 Hugging Face](https://huggingface.co/google/siglip2-base-patch16-224)            |
-| paligemma           | [🤗 Hugging Face](https://huggingface.co/google/paligemma-3b-pt-224)                 |
-
-> **提示**：可使用 `huggingface-cli download <model-name> --local-dir ./checkpoints/<model-name>` 加速下载。
-
-</details>
-
-<details>
-<summary><b>已训练模型</b></summary>
-
-Checkpoint 可在 [🤗 limxdynamics/FluxVLAEngine](https://huggingface.co/limxdynamics/FluxVLAEngine) 获取。可通过[性能](#性能)表格中带链接的分数直达对应 checkpoint。
+请通过客户端脚本运行：
 
 ```bash
-# 示例：从 limxdynamics/FluxVLAEngine 下载 PI0.5 checkpoint
-huggingface-cli download limxdynamics/FluxVLAEngine --include "pi05_paligemma_libero_10_full_finetune_bs64/*" --local-dir ./checkpoints/pi05_paligemma_libero_10_full_finetune_bs64
+bash scripts/remote_inference_client.sh ...
 ```
 
-</details>
+脚本会自动设置 `PYTHONPATH`。除非机器具备兼容的编译器/CUDA 环境，否则
+Power Computing Module 上不建议安装完整 editable package。
 
-## 🌟 特性
+### `ModuleNotFoundError: No module named 'rospy'`
 
-<details>
-<summary><b>All-in-one：单配置文件管理全流程</b></summary>
-
-- 支持通过一个配置文件统一管理数据、模型、训练、评测、推理与部署所需的关键参数（便于复现与部署）。
-
-</details>
-
-<details>
-<summary><b>支持不同 VLA 模型</b></summary>
-
-- 支持 OpenVLA、LlavaVLA、Gr00t、Pi0 与 Pi0.5。
-
-</details>
-
-<details>
-<summary><b>支持不同模块</b></summary>
-
-- 支持 Llama、Gemma 与 Qwen 系列 LLM 主干。
-- 支持 DINOv2、SigLIP 视觉主干。
-- 支持 PaliGemma 与 Qwen-VL VLM 主干。
-
-</details>
-
-<details>
-<summary><b>支持不同训练策略</b></summary>
-
-- 支持同时使用 FSDP 与 DDP，支持 LoRA 训练模式。
-- 支持 train 后立即 eval（eval-after-train）。
-- 支持从 checkpoint 恢复训练。
-
-</details>
-
-<details>
-<summary><b>数据与权重格式</b></summary>
-
-- 支持 Parquet 数据集，并支持加载 LeRobot 格式数据。
-- 支持 safetensors 格式模型权重。
-
-</details>
-
-<details>
-<summary><b>评估与推理能力</b></summary>
-
-- 支持多 GPU 在无光追设备上评估 libero。
-- 支持基于 ZMQ 通信框架的远程推理设施，利用 server/client 架构将模型推理负载装卸到服务器端，适用于算力受限的边缘设备部署。详见 [远程推理服务](docs/remote_inference_serving.md)。
-- 支持 [RTC (Real-Time Chunking)](docs/rtc.md)，提升跨 chunk 轨迹连续性。
-- 支持 GR00T 与 PI0.5 推理加速；详见 [Inference Acceleration](docs/inference_acceleration.md)，包含 Triton 融合核、CUDA Graph 捕获与 CUDA 自定义算子。
-
-</details>
-
-<p align="center">
-  <img src="assets/VLA_speedup.png" alt="VLA Speedup" width="800">
-</p>
-
-## 使用方式
-
-<details>
-<summary><b>本地调试</b></summary>
-
-```
-/root/miniconda3/envs/fluxvla/bin/torchrun --standalone --nnodes 1 --nproc-per-node [NUM_GPUS] scripts/train.py --config [CONFIG_PATH] --work-dir [WORK_DIR] --cfg-options train_dataloader.per_device_batch_size=[PER_DEVICE_BATCH_SIZE]
-```
-
-例如：
-
-```
-export WANDB_MODE=disabled
-/root/miniconda3/envs/fluxvla/bin/torchrun --standalone --nnodes 1 --nproc-per-node 2 scripts/train.py --config configs/pi05/pi05_paligemma_libero_10_full_finetune.py --work-dir ./checkpoints/pi05_paligemma_libero_10_full_finetune --cfg-options train_dataloader.per_device_batch_size=2
-```
-
-</details>
-
-<details>
-<summary><b>本地评估</b></summary>
-
-```
-/root/miniconda3/envs/fluxvla/bin/torchrun --standalone --nnodes 1 --nproc-per-node [NUM_GPUS] scripts/eval.py --config [CONFIG_PATH] --ckpt-path [CKPT_PATH] --cfg-options [CFG_OPTIONS]
-```
-
-例如：
-
-```
-export WANDB_MODE=disabled
-/root/miniconda3/envs/fluxvla/bin/torchrun --standalone --nnodes 1 --nproc-per-node 2 scripts/eval.py --config configs/pi05/pi05_paligemma_libero_10_full_finetune.py --ckpt-path checkpoints/pi05_paligemma_libero_10_full_finetune_bs64/checkpoints/step-028548-epoch-18-loss=0.0111.safetensors
-```
-
-</details>
-
-<details>
-<summary><b>集群训练</b></summary>
-
-```
-export WANDB_MODE=disabled
-bash scripts/train.sh [CONFIG] [WORK_DIR] --cfg-options train_dataloader.per_device_batch_size=[PER_DEVICE_BATCH_SIZE] train_dataloader.batch_size=[GLOBAL_BATCH_SIZE] runner.max_steps=[MAX_STEPS] runner.save_interval=[SAVE_INTERVAL] runner.max_keep_ckpts=[MAX_KEEP_CKPTS] --eval-after-train
-```
-
-</details>
-
-<details>
-<summary><b>从 checkpoint 恢复训练</b></summary>
-
-要从 checkpoint 恢复训练，可使用 `--resume-from` 参数指定 checkpoint 文件路径。训练会从已保存的 global step、epoch、模型状态与优化器状态继续。
-
-**本地训练示例：**
-
-```
-export WANDB_MODE=disabled
-/root/miniconda3/envs/fluxvla/bin/torchrun --standalone --nnodes 1 --nproc-per-node 2 scripts/train.py \
-  --config configs/pi05/pi05_paligemma_libero_10_full_finetune.py \
-  --work-dir ./work_dirs/pi05_paligemma_libero_10_full_finetune \
-  --resume-from ./work_dirs/pi05_paligemma_libero_10_full_finetune/checkpoints/checkpoint_epoch_5.pt \
-  --cfg-options train_dataloader.per_device_batch_size=2
-```
-
-**集群训练示例：**
-
-```
-export WANDB_MODE=disabled
-bash scripts/train.sh [CONFIG] [WORK_DIR] \
-  --resume-from [CHECKPOINT_PATH] \
-  --cfg-options train_dataloader.per_device_batch_size=[PER_DEVICE_BATCH_SIZE] runner.max_steps=[MAX_STEPS]
-```
-
-</details>
-
-<details>
-<summary><b>集群评估</b></summary>
-
-```
-export WANDB_MODE=disabled
-bash scripts/eval.sh [CONFIG] [CKPT_PATH] --cfg-options [CFG_OPTIONS]
-```
-
-</details>
-
-<details>
-<summary><b>真机推理</b></summary>
-
-在真实机器人上运行推理时，请先在机器人端安装好环境，然后执行以下命令：
-
-```
-python scripts/inference_real_robot.py --config [CONFIG] -- ckpt-path [CKPT_PATH]
-```
-
-</details>
-
-## 常见问题（FAQ）
-
-<details>
-<summary><b>Q：下载模型或数据集时，连接 Hugging Face 有问题。</b></summary>
-
-A：如果遇到 Hugging Face 连接问题（如下载慢、超时、连接被拒绝），可以在执行命令前设置以下环境变量，使用 [hf-mirror](https://hf-mirror.com)：
+在 conda 环境中 source ROS 并安装 ROS Python 依赖：
 
 ```bash
-export HF_ENDPOINT="https://hf-mirror.com"
+source /opt/ros/noetic/setup.bash
+pip install rospkg catkin_pkg empy defusedxml netifaces
 ```
 
-</details>
+### 缺少必要 ROS 话题
 
-<details>
-<summary><b>Q：<code>conda install av</code> 解析环境很慢。</b></summary>
-
-A：可使用 `libmamba` 求解器加速依赖解析：
+如果 Power Computing Module 上执行 `rostopic list` 后缺少必要相机、关节或
+夹爪话题，请进入算力模块内部的 `limx-agent` 目录并执行：
 
 ```bash
-conda install -c conda-forge av=14.4.0 --solver=libmamba
+cd /path/to/limx-agent
+bash install.sh
 ```
 
-</details>
+服务启动后重新执行 `rostopic list` 并检查话题。
 
-<details>
-<summary><b>Q：GR00T 在 LIBERO 上评估结果不稳定。</b></summary>
+### `ImportError: libp11-kit.so.0: undefined symbol: ffi_type_pointer`
 
-A：这是预期现象。GR00T 在 LIBERO 上的表现对随机种子、硬件环境和训练 epoch 数都较敏感。这些因素的小变化都可能导致评估结果明显波动。建议使用多个随机种子进行实验，并依据评估表现选择最优 checkpoint。
+这是 Conda/ROS 动态库冲突，通常由 `cv_bridge` 触发。当前 Tron2 operator
+已经避免使用 `cv_bridge` 转换 `sensor_msgs/Image`。请确认 Power Computing
+Module 使用了包含该改动的 FluxVLA 分支。
 
-</details>
+### `Cannot reach VLA server at tcp://127.0.0.1:5555`
 
-<details>
-<summary><b>Q：执行 <code>pip install -r requirements.txt</code> 时构建 <code>egl_probe</code> 失败，报错 <code>RuntimeError: CMake must be installed</code>。</b></summary>
-
-A：`egl_probe` 需要 CMake 才能构建。可通过 conda（推荐）或 apt 安装：
+SSH tunnel 或 GPU server 没有运行。检查：
 
 ```bash
-conda install -c conda-forge cmake
-# 或
-sudo apt install cmake
+ssh -p 22 -L 5555:127.0.0.1:3333 USER@SERVER_PUBLIC_IP -N
 ```
 
-> **说明**：不要使用 `pip install cmake`，pip 版本是 Python 封装，在 pip 隔离构建环境中可能失败。
+并确认服务端监听在 3333 端口。
 
-</details>
+### `Connection refused` for `ws://10.192.1.2:5000`
 
-<details>
-<summary><b>Q：<code>egl_probe</code> 构建失败，提示 <code>Compatibility with CMake < 3.5 has been removed from CMake</code>。</b></summary>
-
-A：这通常是因为你的 CMake 版本对 `egl_probe` 的 CMakeLists.txt 来说过新。安装前先设置以下环境变量：
+这是 Tron2 控制 WebSocket，不是 FluxVLA remote inference server。检查
+Tron2 控制服务是否运行，以及 IP/端口是否正确：
 
 ```bash
-CMAKE_POLICY_VERSION_MINIMUM=3.5 pip install -r requirements.txt
+python -c "import socket; socket.create_connection(('10.192.1.2', 5000), timeout=3); print('tcp port ok')"
 ```
 
-</details>
+如果端口不稳定，先修复或重启 Tron2 控制服务，再使用
+`inference.dry_run=False`。
 
-<details>
-<summary><b>Q：安装后出现 NumPy 版本错误（如 <code>RuntimeError: Numpy is not available</code> 或版本不兼容警告）。</b></summary>
+如果 WebSocket 无法稳定连接，请检查真实机器人是否处于 high-level dev mode。
 
-A：安装过程中某些依赖可能覆盖了固定的 NumPy 版本。直接重装正确版本即可：
+### WebSocket 能连接但命令不生效
 
-```bash
-pip install numpy==1.26.4
+检查：
+
+- `ws_accid` 是否属于当前机器人；
+- 是否有官方控制 UI 占用了独占连接；
+- 机器人是否处于正确的外部/API 控制模式；
+- WebSocket 指令路径是否匹配控制器 API。
+
+## 14. 主要文件
+
+当前 Tron2 部署相关主要文件：
+
+```text
+configs/pi05/pi05_paligemma_tron2_lora_finetune.py
+fluxvla/engines/runners/tron2_inference_runner.py
+fluxvla/engines/operators/tron2_operator.py
+fluxvla/engines/runners/base_inference_runner.py
+fluxvla/transforms/normalize.py
+scripts/remote_inference_client.sh
 ```
 
-</details>
+常用运行参数：
 
-<details>
-<summary><b>Q：在 RTX 5090 上推理失败（如 Triton kernel 错误或 CUDA 兼容性问题）。</b></summary>
-
-A：RTX 5090（Blackwell 架构）需要更新版本的 Triton。请升级到 Triton 3.2.0 或更高版本：
-
-```bash
-pip install triton==3.2.0
-```
-
-</details>
-
-## 贡献指南
-
-贡献流程与规范请见：[贡献指南](docs/CONTRIBUTING.md#简体中文)。
-
-快速约定：
-
-- **先讨论再动手**：新功能/新模型/较大改动，优先在 GitHub Issue 里沟通设计与范围。
-- **从上游主分支开新分支**：基于 `upstream/main` 创建分支，命名建议 `feat/`、`fix/`、`docs/` 等前缀（详见贡献指南）。
-- **提交前跑检查**：确保本地 pre-commit 通过、CI 为绿后再提 PR。
-- **提交信息规范**：建议使用 Conventional Commits（示例见贡献指南）。
-
-## 支持
-
-如果你在使用本仓库时遇到问题，欢迎联系我们。你可以直接联系 [mason@limxdynamics.com](mason@limxdynamics.com) 和 [wayne@limxdynamics.com](wayne@limxdynamics.com)，或在 Github 提交 issue 获取帮助。
-
-## 🙏 引用与致谢
-
-如果你在学术研究或工程项目中使用了 FluxVLA，欢迎引用我们：
-
-```bibtex
-@software{FluxVLA2026,
-  author  = {Li, Yinhao and Mao, Weixin and Lan, Zihan and Rong, Jikun and Zhu, Minzhao and Mao, Yiming and Shen, Bowen and Huang, Xu},
-  title   = {{FluxVLA Engine: A One-Stop VLA Engineering Platform for Embodied Intelligence}},
-  year    = {2026},
-  month   = apr,
-  version = {1.0.0},
-  doi     = {10.5281/zenodo.20049506},
-  url     = {https://github.com/FluxVLA/FluxVLA},
-  license = {Apache-2.0},
-}
-```
-
-**致谢**：本项目受益于以下开源项目与社区工作，在此一并致谢：[LeRobot](https://github.com/huggingface/lerobot)、[NVIDIA Isaac GR00T](https://github.com/NVIDIA/Isaac-GR00T/tree/main)、[DreamZero](https://arxiv.org/abs/2602.15922)（[代码](https://github.com/dreamzero0/dreamzero)）、[OpenVLA](https://github.com/openvla/openvla)、[OpenPI (pi0)](https://github.com/Physical-Intelligence/openpi)、[LLaVA](https://github.com/haotian-liu/LLaVA)、[DeepSpeed](https://github.com/deepspeedai/DeepSpeed)、[Qwen](https://github.com/QwenLM)、[Triton](https://github.com/triton-lang/triton)、[RTC](https://github.com/Physical-Intelligence/real-time-chunking-kinetix)、[Training RTC](https://arxiv.org/pdf/2512.05964)、[Realtime-VLA](https://github.com/Dexmal/realtime-vla)。如果我们不慎遗漏了您的项目或贡献，请提交 issue 或 pull request，以便我们能够给予您应有的致谢。
-
-## 路线图
-
-- 支持更多视觉主干网络。
-- 支持更多 VLM 主干。
-- 支持更多 VLA 方法。
-- 支持使用 VLM 数据或思维链（CoT）数据进行训练。
-- RLDS 数据集将废弃并被 Parquet 数据集替代。
-- logger 功能将完整实现。
-- 支持 issacsim。
-- 支持SARM
+| 参数                          | 含义                             |
+| ----------------------------- | -------------------------------- |
+| `inference.dry_run=True`      | 完成推理链路，但不执行机器人动作 |
+| `inference.dry_run=False`     | 在机器人上执行返回动作           |
+| `inference.execute_horizon=4` | 每个 chunk 只执行前 4 步         |
+| `inference.operator.ws_port`  | Tron2 WebSocket 控制端口         |
+| `inference.operator.ws_accid` | Tron2 WebSocket 账号/机器人标识  |

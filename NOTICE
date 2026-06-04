@@ -40,6 +40,14 @@ Bundled or adapted third-party source/model-support files include:
   Local attribution:
   fluxvla/models/third_party_models/eagle2_hg_model/ATTRIBUTION.txt
 
+- X-VLA / Florence-2 model support and adapted components
+  Source: https://github.com/2toINF/X-VLA
+  Upstream ref noted in local attribution:
+  origin/main@6bc2513f5f1cbec715cc668b414392a6cae5c671
+  License noted in local attribution: Apache-2.0
+  Local attribution:
+  fluxvla/models/third_party_models/xvla_models/ATTRIBUTION.txt
+
 Model checkpoints and datasets
 ------------------------------
 
