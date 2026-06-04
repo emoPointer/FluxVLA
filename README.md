@@ -1,7 +1,7 @@
 # Training and Deploying FluxVLA on a New Tron2
 
-Original document path in this repository:
-`docs/tron2_training_deployment.md`.
+Original upstream FluxVLA README:
+https://github.com/FluxVLA/FluxVLA/blob/main/README.md.
 
 This project is developed based on the upstream
 [FluxVLA](https://github.com/FluxVLA/FluxVLA) project. We thank them for their
