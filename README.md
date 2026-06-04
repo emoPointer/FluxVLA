@@ -15,12 +15,6 @@ the common setup where a GPU workstation/server runs the VLA model, while the
 Tron2 robot computer only collects ROS observations and sends WebSocket control
 commands to the robot.
 
-The current Tron2 PI0.5 LoRA config is:
-
-```text
-configs/pi05/pi05_paligemma_tron2_lora_finetune.py
-```
-
 The current deployment path is:
 
 ```text

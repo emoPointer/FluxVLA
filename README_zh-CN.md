@@ -13,12 +13,6 @@ remote inference 在真实 Tron2 上部署策略。常见部署形态是：GPU
 工作站/服务器负责模型训练和推理，Tron2 外挂算力模块负责采集 ROS
 观测、通过 SSH 隧道请求远程推理，并通过 Tron2 WebSocket 控制服务执行动作。
 
-当前 Tron2 PI0.5 LoRA 配置文件是：
-
-```text
-configs/pi05/pi05_paligemma_tron2_lora_finetune.py
-```
-
 当前部署链路是：
 
 ```text
