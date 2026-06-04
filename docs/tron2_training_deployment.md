@@ -100,6 +100,21 @@ the tokenizer path as:
 model_path='checkpoints/pi05_base'
 ```
 
+### Optional Environment File
+
+The repository provides `.env.example` as a safe environment-variable template.
+It contains placeholders and public defaults only; do not put real tokens,
+robot account IDs, private hosts, or credentials into files committed to Git.
+
+FluxVLA does not automatically load `.env`.  If you keep a private local `.env`
+file, load it explicitly in the shell before running training or inference:
+
+```bash
+set -a
+source .env
+set +a
+```
+
 ## 3. Prepare the Dataset
 
 Data can be exported directly from the cloud data platform.  Ask the delivery

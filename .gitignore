@@ -39,6 +39,11 @@
 *.pyc
 Thumbs.db
 
+# Ignore private environment files while keeping the public template
+.env
+.env.*
+!.env.example
+
 # Ignore node_modules and dependencies
 node_modules/
 vendor/

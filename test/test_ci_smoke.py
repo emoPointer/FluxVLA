@@ -40,11 +40,20 @@ def test_readme_links_are_current():
 
     assert 'Training and Deploying FluxVLA on a New Tron2' in readme
     assert 'https://github.com/FluxVLA/FluxVLA/blob/main/README.md' in readme
+    assert 'Project Scope and Status' in readme
+    assert 'Repository Layout' in readme
+    assert 'License and Contributions' in readme
     assert 'README_zh-CN.md' in readme
+
+    zh_readme = (ROOT / 'README_zh-CN.md').read_text(encoding='utf-8')
+    assert '项目适用范围与状态' in zh_readme
+    assert '目录结构' in zh_readme
+    assert 'License、贡献和反馈入口' in zh_readme
 
 
 def test_release_governance_files_exist():
     required = [
+        '.env.example',
         'NOTICE',
         'CONTRIBUTING.md',
         'SECURITY.md',

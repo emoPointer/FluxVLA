@@ -3,7 +3,7 @@
 [English](README.md) | 简体中文
 
 原始上游 FluxVLA README：
-https://github.com/FluxVLA/FluxVLA/blob/main/README.md。
+<https://github.com/FluxVLA/FluxVLA/blob/main/README.md>
 
 本项目基于上游 [FluxVLA](https://github.com/FluxVLA/FluxVLA) 项目开发。
 感谢他们的杰出工作。
@@ -26,6 +26,72 @@ Tron2 ROS topics -> robot-side FluxVLA client -> SSH tunnel -> GPU server ZMQ
     -> PI0.5 policy inference -> action returned to robot client
     -> Tron2 WebSocket control service
 ```
+
+## 项目适用范围与状态
+
+### 适用对象
+
+本仓库适用于：
+
+- 课程学习和实验教学中的 VLA 训练、部署流程演示；
+- 基于 Tron2 的 FluxVLA / PI0.5 科研复现和二次开发；
+- 数据转换、LoRA 微调、remote inference、机器人侧客户端等工具调用集成；
+- dry-run 推理链路验证，以及受控条件下的真实机器人实验验证。
+
+### 当前状态
+
+本仓库是面向 Tron2 的 FluxVLA 训练与部署试验性研究版本。它不是生产级自主
+机器人系统，不是经过认证的机器人安全系统，也不承诺稳定 SDK/API。真实机器人
+执行前，使用者必须在受控环境中完成安全验证，并准备物理急停等安全措施。
+
+### 核心功能
+
+- Tron2 PI0.5 LoRA 微调配置。
+- 面向 Tron2 数据的 LeRobot 数据结构和字段说明。
+- 在 Tron2 Power Computing Module 上采集三路 ROS 相机观测。
+- 基于 ZMQ 的 remote inference，并支持 SSH tunnel。
+- dry-run 模式：完整执行观测采集、图像传输、服务器推理、动作返回，但不发布
+  机器人动作。
+- 16 维 Tron2 动作布局：
+  `left_arm(7) + left_gripper(1) + right_arm(7) + right_gripper(1)`。
+- 开源发布元数据、CI smoke test、Issue 模板和 PR checklist。
+
+### 不包含或不支持的内容
+
+- PI0.5 base 权重需要用户自行获取。
+- 机器人网络、机器人账号、ROS 服务和 WebSocket 控制服务需要用户在自己的
+  Tron2 环境中配置。
+- 通用任务规划、运动规划、碰撞规避、认证级安全控制和无人值守生产运行不在本仓库
+  范围内。
+- 不同机器人固件、ROS 话题布局、控制器 API 或相机配置可能需要用户自行调整配置
+  或代码。
+
+### 目录结构
+
+| 路径                             | 说明                                          |
+| -------------------------------- | --------------------------------------------- |
+| `configs/pi05/`                  | PI0.5 训练、推理和 Tron2 LoRA 配置            |
+| `fluxvla/`                       | 核心 Python 包、模型、runner、transform、算子 |
+| `scripts/`                       | 训练、推理、评估和 remote client 命令入口     |
+| `docs/`                          | 部署、remote inference、开源审查等扩展文档    |
+| `tools/`                         | 数据转换和工具脚本                            |
+| `test/`                          | 单元测试和轻量 CI smoke test                  |
+| `.github/`                       | CI workflow、Issue 模板和 PR 模板             |
+| `datasets/`                      | 本地数据集目录；除 `.gitkeep` 外被 Git 忽略   |
+| `checkpoints/`                   | 本地模型权重目录；除 `.gitkeep` 外被 Git 忽略 |
+| `work_dirs/`                     | 本地训练输出目录；被 Git 忽略                 |
+| `.env.example`                   | 不含密钥的公开环境变量模板                    |
+| `NOTICE`                         | 第三方代码、模型和数据来源说明                |
+| `docs/release_license_review.md` | 第三方依赖 License 审查表                     |
+
+### License、贡献和反馈入口
+
+除非另有说明，本仓库代码使用 Apache License 2.0。License 和第三方归属信息见
+`LICENSE`、`NOTICE` 和 `docs/release_license_review.md`。
+
+贡献方式见 `CONTRIBUTING.md`。Bug report 和 feature request 请使用 GitHub
+Issue 模板，代码改动请使用 PR 模板。安全问题请按 `SECURITY.md` 处理，不要在公开
+Issue 中披露漏洞细节。
 
 ## 1. 硬件与网络假设
 
@@ -100,6 +166,20 @@ tokenizer。Tron2 LoRA 配置里应保持：
 
 ```python
 model_path='checkpoints/pi05_base'
+```
+
+### 可选环境变量文件
+
+仓库提供 `.env.example` 作为环境变量模板。该文件只包含占位符和公开默认值；
+不要把真实 token、机器人账号 ID、私有主机地址或凭据提交到 Git。
+
+FluxVLA 不会自动加载 `.env`。如果你在本地维护私有 `.env`，运行训练或推理前
+需要在 shell 中显式加载：
+
+```bash
+set -a
+source .env
+set +a
 ```
 
 ## 3. 准备数据集

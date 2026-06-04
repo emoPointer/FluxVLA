@@ -3,7 +3,7 @@
 [English](README.md) | [简体中文](README_zh-CN.md)
 
 Original upstream FluxVLA README:
-https://github.com/FluxVLA/FluxVLA/blob/main/README.md.
+<https://github.com/FluxVLA/FluxVLA/blob/main/README.md>
 
 This project is developed based on the upstream
 [FluxVLA](https://github.com/FluxVLA/FluxVLA) project. We thank them for their
@@ -28,6 +28,80 @@ Tron2 ROS topics -> robot-side FluxVLA client -> SSH tunnel -> GPU server ZMQ
     -> PI0.5 policy inference -> action returned to robot client
     -> Tron2 WebSocket control service
 ```
+
+## Project Scope and Status
+
+### Intended Users
+
+This repository is intended for:
+
+- course and lab learning around VLA training and robot deployment workflows;
+- research reproduction and adaptation of FluxVLA / PI0.5 on Tron2;
+- tool integration for dataset conversion, fine-tuning, remote inference, and
+  robot-side execution clients;
+- experimental validation with dry-run inference and controlled real-robot
+  tests.
+
+### Current Status
+
+This is an experimental research release for Tron2-oriented FluxVLA training
+and deployment.  It is not a production autonomy stack, not a certified robot
+safety system, and not a stable SDK/API guarantee.  Real-robot execution must
+be validated by the user in a controlled environment with physical safety
+measures.
+
+### Core Features
+
+- Tron2 PI0.5 LoRA fine-tuning configuration.
+- LeRobot-style dataset layout and field expectations for Tron2 data.
+- Three-camera ROS observation collection on the Tron2 Power Computing Module.
+- ZMQ-based remote inference with SSH tunnel support.
+- Dry-run mode that completes observation collection, image transfer, server
+  inference, and action return without publishing robot actions.
+- 16-dimensional Tron2 action layout:
+  `left_arm(7) + left_gripper(1) + right_arm(7) + right_gripper(1)`.
+- Open-source release metadata, CI smoke tests, issue templates, and pull
+  request checklist.
+
+### Not Included or Not Supported
+
+- PI0.5 base checkpoints must be obtained separately by the user.
+- Robot network access, robot credentials, ROS services, and WebSocket control
+  services must be configured on the user's own Tron2 environment.
+- General task planning, motion planning, collision avoidance, certified safety
+  control, and unattended production operation are out of scope.
+- Different robot firmware, ROS topic layouts, controller APIs, or camera
+  setups may require local configuration or code changes.
+
+### Repository Layout
+
+| Path                             | Purpose                                                 |
+| -------------------------------- | ------------------------------------------------------- |
+| `configs/pi05/`                  | PI0.5 training, inference, and Tron2 LoRA configs       |
+| `fluxvla/`                       | Core Python package, models, runners, transforms, ops   |
+| `scripts/`                       | Training, inference, evaluation, and remote client CLIs |
+| `docs/`                          | Extended deployment, remote inference, and review docs  |
+| `tools/`                         | Dataset conversion and utility scripts                  |
+| `test/`                          | Unit tests and lightweight CI smoke checks              |
+| `.github/`                       | CI workflows and Issue / PR templates                   |
+| `datasets/`                      | Local datasets; ignored by Git except `.gitkeep`        |
+| `checkpoints/`                   | Local model weights; ignored by Git except `.gitkeep`   |
+| `work_dirs/`                     | Local training outputs; ignored by Git                  |
+| `.env.example`                   | Public environment-variable template without secrets    |
+| `NOTICE`                         | Third-party code, model, and data-source notices        |
+| `docs/release_license_review.md` | Third-party dependency license review                   |
+
+### License and Contributions
+
+Code in this repository is distributed under the Apache License 2.0 unless
+otherwise noted.  See `LICENSE`, `NOTICE`, and
+`docs/release_license_review.md` for license and third-party attribution
+details.
+
+Contribution guidelines are in `CONTRIBUTING.md`.  Use GitHub Issues for bug
+reports and feature requests, and use the pull request template for code
+changes.  Security-sensitive reports should follow `SECURITY.md` instead of
+being posted publicly.
 
 ## 1. Hardware and Network Assumptions
 
@@ -108,6 +182,21 @@ the tokenizer path as:
 
 ```python
 model_path='checkpoints/pi05_base'
+```
+
+### Optional Environment File
+
+The repository provides `.env.example` as a safe environment-variable template.
+It contains placeholders and public defaults only; do not put real tokens,
+robot account IDs, private hosts, or credentials into files committed to Git.
+
+FluxVLA does not automatically load `.env`.  If you keep a private local `.env`
+file, load it explicitly in the shell before running training or inference:
+
+```bash
+set -a
+source .env
+set +a
 ```
 
 ## 3. Prepare the Dataset
